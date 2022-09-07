@@ -3,22 +3,10 @@
 // SPDX-License-Identifier: MIT
 
 import { invoke } from '@tauri-apps/api/tauri';
-
-export interface Permissions {
-    /**
-     * `true` if these permissions describe a readonly (unwritable) file.
-     */
-    readonly: boolean;
-    /**
-     * The underlying raw `st_mode` bits that contain the standard Unix permissions for this file.
-     */
-    mode: number | undefined;
-}
-
 /**
  * Metadata information about a file.
  * This structure is returned from the `metadata` function or method
- * and represents known metadata about a file such as its permissions, size, modification times, etc.
+ * and represents known metadata about a file.
  */
 export interface Metadata {
     /**
@@ -50,45 +38,33 @@ export interface Metadata {
      */
     size: number;
     /**
-     * The permissions of the file this metadata is for.
+     * The type of the file
      */
-    permissions: Permissions;
+    fileType: FileType,
     /**
-     * The ID of the device containing the file. Only available on Unix.
+     * The parent directory of the file.
      */
-    dev: number | undefined;
+    parent: string;
     /**
-     * The inode number. Only available on Unix.
+     * The ID of of this file.
      */
-    ino: number | undefined;
+    id: string;
     /**
-     * The rights applied to this file. Only available on Unix.
+     * The filename
      */
-    mode: number | undefined;
+    name: string;
     /**
-     * The number of hard links pointing to this file. Only available on Unix.
+     * The file extension
      */
-    nlink: number | undefined;
+    extension: string;
     /**
-     * The user ID of the owner of this file. Only available on Unix.
+     * The full path
      */
-    uid: number | undefined;
+    path: string,
     /**
-     * The group ID of the owner of this file. Only available on Unix.
+     * If is_directory, the directory empty or not
      */
-    gid: number | undefined;
-    /**
-     * The device ID of this file (if it is a special one). Only available on Unix.
-     */
-    rdev: number | undefined;
-    /**
-     * The block size for filesystem I/O. Only available on Unix.
-     */
-    blksize: number | undefined;
-    /**
-     * The number of blocks allocated to the file, in 512-byte units. Only available on Unix.
-     */
-    blocks: number | undefined;
+    hasChild: boolean;
 }
 
 interface BackendMetadata {
@@ -99,28 +75,71 @@ interface BackendMetadata {
     isFile: boolean;
     isSymlink: boolean;
     size: number;
-    permissions: Permissions;
-    dev: number | undefined;
-    ino: number | undefined;
-    mode: number | undefined;
-    nlink: number | undefined;
-    uid: number | undefined;
-    gid: number | undefined;
-    rdev: number | undefined;
-    blksize: number | undefined;
-    blocks: number | undefined;
+    id: string;
+    path: string,
+    hasChild: boolean;
 }
 
-export async function metadata(path: string): Promise<Metadata> {
-    return await invoke<BackendMetadata>('plugin:fs-extra|metadata', { path }).then((metadata) => {
-        const { accessedAtMs, createdAtMs, modifiedAtMs, ...data } = metadata;
-        return {
-            accessedAt: new Date(accessedAtMs),
-            createdAt: new Date(createdAtMs),
-            modifiedAt: new Date(modifiedAtMs),
-            ...data,
-        };
+export const Extensions: { [index: string]: RegExp } = {
+  txt: /(txt|csv)/,
+  img: /(png|jpeg|jpg|tiff|tif|vrt)/,
+  vec: /(shp|geojson)/,
+};
+
+export type FileType = 'txt' | 'img' | 'vec' | '';
+
+export function filetype(extension: string): FileType {
+  const ext = extension.toLowerCase();
+  if (ext === 'tiff' || ext === 'tif') {
+    return 'img';
+  } else if (ext === 'shp') {
+    return 'vec';
+  } else {
+    return '';
+  }
+}
+
+function MetadataMap(metadata: BackendMetadata): Metadata {
+  let filePath = metadata.path;
+  if (metadata.path.lastIndexOf('/') === metadata.path.length - 1 || metadata.path.lastIndexOf('\\') === metadata.path.length - 1) {
+    filePath = metadata.path.slice(0, -1)
+  }
+  const parentMatch = filePath.match(/.*[\/\\]/);
+  const parent = parentMatch === null ? '' : parentMatch[0];
+  const name = filePath.replace(parent, '');
+  const extensionOrUndefine = filePath.split('.').pop();
+  const extension = extensionOrUndefine === undefined ? '' : extensionOrUndefine;
+
+  const { accessedAtMs, createdAtMs, modifiedAtMs, ...data } = metadata;
+  return {
+      accessedAt: new Date(accessedAtMs),
+      createdAt: new Date(createdAtMs),
+      modifiedAt: new Date(modifiedAtMs),
+      name: name,
+      extension: extension,
+      parent: parent,
+      fileType: filetype(extension),
+      ...data,
+  };
+}
+
+export async function metadata(filePath: string, fileId: string): Promise<Metadata> {
+    return await invoke<BackendMetadata>('plugin:fs-extra|metadata', { filePath, fileId }).then((metadata) => {
+        return MetadataMap(metadata);
+    }).catch((err) => {
+        return Promise.reject(err);
     });
+}
+
+export async function listMetadatas(rootPath: string, rootId: string): Promise<Metadata[]> {
+  return await invoke<BackendMetadata[]>('plugin:fs-extra|list_metadatas', { rootPath, rootId }).then((metadata) => {
+    return metadata.map(MetadataMap);
+    // let result: Metadata[] = metadata.map(MetadataMap);
+    // return result;
+    // return Promise.resolve(result);
+  }).catch((err) => {
+        return Promise.reject(err);
+  });
 }
 
 export async function exists(path: string): Promise<boolean> {

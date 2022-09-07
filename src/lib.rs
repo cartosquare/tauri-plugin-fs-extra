@@ -4,16 +4,12 @@
 
 use serde::{ser::Serializer, Serialize};
 use tauri::{command, plugin::Plugin, Invoke, Runtime};
-
+use std::fs;
 use std::{
+  path::Path,
   path::PathBuf,
   time::{SystemTime, UNIX_EPOCH},
 };
-
-#[cfg(unix)]
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
-#[cfg(windows)]
-use std::os::windows::fs::MetadataExt;
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -34,29 +30,6 @@ impl Serialize for Error {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Permissions {
-  readonly: bool,
-  #[cfg(unix)]
-  mode: u32,
-}
-
-#[cfg(unix)]
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct UnixMetadata {
-  dev: u64,
-  ino: u64,
-  mode: u32,
-  nlink: u64,
-  uid: u32,
-  gid: u32,
-  rdev: u64,
-  blksize: u64,
-  blocks: u64,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 struct Metadata {
   accessed_at_ms: u64,
   created_at_ms: u64,
@@ -65,12 +38,12 @@ struct Metadata {
   is_file: bool,
   is_symlink: bool,
   size: u64,
-  permissions: Permissions,
-  #[cfg(unix)]
-  #[serde(flatten)]
-  unix: UnixMetadata,
-  #[cfg(windows)]
-  file_attributes: u32,
+  // parent: PathBuf,
+  // name: String,
+  // extension: String,
+  path: PathBuf,
+  has_child: bool,
+  id: String,
 }
 
 fn system_time_to_ms(time: std::io::Result<SystemTime>) -> u64 {
@@ -83,10 +56,10 @@ fn system_time_to_ms(time: std::io::Result<SystemTime>) -> u64 {
 }
 
 #[command]
-async fn metadata(path: PathBuf) -> Result<Metadata> {
-  let metadata = std::fs::metadata(path)?;
+async fn metadata(file_path: PathBuf, file_id: String) -> Result<Metadata> {
+  // let rs_path = Path::new(&file_path);
+  let metadata = std::fs::metadata(&file_path)?;
   let file_type = metadata.file_type();
-  let permissions = metadata.permissions();
   Ok(Metadata {
     accessed_at_ms: system_time_to_ms(metadata.accessed()),
     created_at_ms: system_time_to_ms(metadata.created()),
@@ -94,27 +67,27 @@ async fn metadata(path: PathBuf) -> Result<Metadata> {
     is_dir: file_type.is_dir(),
     is_file: file_type.is_file(),
     is_symlink: file_type.is_symlink(),
+    // parent: file_path.parent().unwrap().to_path_buf(),
+    // name: file_path.file_name().unwrap().to_str().unwrap().to_owned(),
+    // extension: file_path.extension().unwrap().to_str().unwrap().to_owned(),
+    path: file_path.clone(),
+    has_child: if file_type.is_dir() { !file_path.read_dir()?.next().is_none() } else { false },
     size: metadata.len(),
-    permissions: Permissions {
-      readonly: permissions.readonly(),
-      #[cfg(unix)]
-      mode: permissions.mode(),
-    },
-    #[cfg(unix)]
-    unix: UnixMetadata {
-      dev: metadata.dev(),
-      ino: metadata.ino(),
-      mode: metadata.mode(),
-      nlink: metadata.nlink(),
-      uid: metadata.uid(),
-      gid: metadata.gid(),
-      rdev: metadata.rdev(),
-      blksize: metadata.blksize(),
-      blocks: metadata.blocks(),
-    },
-    #[cfg(windows)]
-    file_attributes: metadata.file_attributes(),
+    id: file_id,
   })
+}
+
+#[command]
+async fn list_metadatas(root_path: String, root_id: String) -> Result<Vec<Metadata>> {
+  let paths = fs::read_dir(root_path)?;
+
+  let mut result: Vec<Metadata> = Vec::new();
+  let mut cnt = 0;
+  for path in paths {
+    result.push(metadata(path.unwrap().path(),  format!("{}-{}", root_id, cnt.to_string())).await?);
+    cnt += 1;
+  }
+  Ok(result)
 }
 
 #[command]
@@ -130,7 +103,7 @@ pub struct FsExtra<R: Runtime> {
 impl<R: Runtime> Default for FsExtra<R> {
   fn default() -> Self {
     Self {
-      invoke_handler: Box::new(tauri::generate_handler![exists, metadata]),
+      invoke_handler: Box::new(tauri::generate_handler![exists, metadata, list_metadatas]),
     }
   }
 }

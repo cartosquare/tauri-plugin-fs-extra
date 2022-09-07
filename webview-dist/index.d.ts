@@ -1,17 +1,7 @@
-export interface Permissions {
-    /**
-     * `true` if these permissions describe a readonly (unwritable) file.
-     */
-    readonly: boolean;
-    /**
-     * The underlying raw `st_mode` bits that contain the standard Unix permissions for this file.
-     */
-    mode: number | undefined;
-}
 /**
  * Metadata information about a file.
  * This structure is returned from the `metadata` function or method
- * and represents known metadata about a file such as its permissions, size, modification times, etc.
+ * and represents known metadata about a file.
  */
 export interface Metadata {
     /**
@@ -43,45 +33,39 @@ export interface Metadata {
      */
     size: number;
     /**
-     * The permissions of the file this metadata is for.
+     * The type of the file
      */
-    permissions: Permissions;
+    fileType: FileType;
     /**
-     * The ID of the device containing the file. Only available on Unix.
+     * The parent directory of the file.
      */
-    dev: number | undefined;
+    parent: string;
     /**
-     * The inode number. Only available on Unix.
+     * The ID of of this file.
      */
-    ino: number | undefined;
+    id: string;
     /**
-     * The rights applied to this file. Only available on Unix.
+     * The filename
      */
-    mode: number | undefined;
+    name: string;
     /**
-     * The number of hard links pointing to this file. Only available on Unix.
+     * The file extension
      */
-    nlink: number | undefined;
+    extension: string;
     /**
-     * The user ID of the owner of this file. Only available on Unix.
+     * The full path
      */
-    uid: number | undefined;
+    path: string;
     /**
-     * The group ID of the owner of this file. Only available on Unix.
+     * If is_directory, the directory empty or not
      */
-    gid: number | undefined;
-    /**
-     * The device ID of this file (if it is a special one). Only available on Unix.
-     */
-    rdev: number | undefined;
-    /**
-     * The block size for filesystem I/O. Only available on Unix.
-     */
-    blksize: number | undefined;
-    /**
-     * The number of blocks allocated to the file, in 512-byte units. Only available on Unix.
-     */
-    blocks: number | undefined;
+    hasChild: boolean;
 }
-export declare function metadata(path: string): Promise<Metadata>;
+export declare const Extensions: {
+    [index: string]: RegExp;
+};
+export declare type FileType = 'txt' | 'img' | 'vec' | '';
+export declare function filetype(extension: string): FileType;
+export declare function metadata(filePath: string, fileId: string): Promise<Metadata>;
+export declare function listMetadatas(rootPath: string, rootId: string): Promise<Metadata[]>;
 export declare function exists(path: string): Promise<boolean>;
